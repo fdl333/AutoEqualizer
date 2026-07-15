@@ -796,10 +796,6 @@ class AutoEqualizerApp:
         self.apo_dirty = False
         self.save_state()
         self.status.set(f"Applied to APO at {datetime.now().strftime('%H:%M:%S')}.")
-        messagebox.showinfo(
-            "Applied to Equalizer APO",
-            f"Saved current curve to:\n{config_path}\n\nBackup created:\n{backup_path}",
-        )
 
     def write_current_curve_to_apo(self) -> Path:
         gains = [round(var.get(), 1) for var in self.gain_vars]

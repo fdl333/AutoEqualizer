@@ -68,6 +68,8 @@ If Windows blocks the write, run the app as Administrator or use **Export APO Pr
 
 Peace may overwrite `config.txt` later if you change settings inside Peace.
 
+The packaged `.exe` is built to request Administrator rights at launch, because Equalizer APO's active config lives under `C:\Program Files`.
+
 ## Saved Configuration
 
 The app saves the last thresholds and slider curve in `auto_equalizer_state.json` and loads them on startup.
