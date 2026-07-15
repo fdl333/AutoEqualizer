@@ -71,3 +71,5 @@ Peace may overwrite `config.txt` later if you change settings inside Peace.
 ## Saved Configuration
 
 The app saves the last thresholds and slider curve in `auto_equalizer_state.json` and loads them on startup.
+
+Use **Save Settings** and **Load Settings** to manage named profiles. Profiles are stored as JSON files in the `profiles` folder beside the app.

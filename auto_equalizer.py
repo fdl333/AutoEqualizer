@@ -33,6 +33,7 @@ from tkinter import (
     Tk,
     filedialog,
     messagebox,
+    simpledialog,
 )
 
 import numpy as np
@@ -50,12 +51,15 @@ MAX_BOOST_DB = 12.0
 DEFAULT_Q = 1.41
 SAMPLE_RATE = 48000
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APO_CONFIG_DIR = Path(r"C:\Program Files\EqualizerAPO\config")
 APO_PRESET_NAME = "auto_hearing_eq.txt"
 CRASH_LOG_PATH = APP_DIR / "auto_equalizer_crash.log"
 RUNTIME_LOG_PATH = APP_DIR / "auto_equalizer_runtime.log"
 STATE_PATH = APP_DIR / "auto_equalizer_state.json"
-WINDOW_WIDTH = 900
+PROFILE_DIR = APP_DIR / "profiles"
+ICON_PATH = RESOURCE_DIR / "assets" / "auto_equalizer.ico"
+WINDOW_WIDTH = 1080
 WINDOW_HEIGHT = 720
 GRAPH_WIDTH = 610
 GRAPH_HEIGHT = 270
@@ -225,6 +229,8 @@ class AutoEqualizerApp:
         self.root.title("Auto Equalizer")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.resizable(False, False)
+        if ICON_PATH.exists():
+            self.root.iconbitmap(str(ICON_PATH))
         self.root.report_callback_exception = self.report_callback_exception
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.log_runtime("started")
@@ -283,7 +289,7 @@ class AutoEqualizerApp:
             top,
             textvariable=self.status,
             font=("Segoe UI", 10),
-            wraplength=980,
+            wraplength=1040,
             justify=LEFT,
         ).pack(anchor="w", pady=(6, 0))
         Label(top, textvariable=self.current, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 0))
@@ -300,6 +306,8 @@ class AutoEqualizerApp:
         Button(buttons, text="Recalculate EQ", command=self.apply_test_gains, width=14).pack(side=LEFT, padx=(0, 8))
         self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=14)
         self.apply_button.pack(side=LEFT, padx=(0, 8))
+        Button(buttons, text="Save Settings", command=self.save_settings_profile, width=14).pack(side=LEFT, padx=(0, 8))
+        Button(buttons, text="Load Settings", command=self.load_settings_profile, width=14).pack(side=LEFT, padx=(0, 8))
         Button(buttons, text="Export APO Preset", command=self.export_preset, width=18).pack(side=LEFT)
 
         main = Frame(self.root, padx=14, pady=8)
@@ -456,18 +464,91 @@ class AutoEqualizerApp:
         if self.loading_state:
             return
 
+        state = self.current_state()
+        try:
+            STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        except OSError as exc:
+            self.status.set(f"Could not save configuration: {exc}")
+
+    def current_state(self, name: str | None = None) -> dict[str, object]:
         gains = [round(var.get(), 1) for var in self.gain_vars]
-        state = {
+        state: dict[str, object] = {
             "saved": datetime.now().isoformat(timespec="seconds"),
             "bands_hz": BANDS,
             "thresholds_dbfs": {str(freq): level for freq, level in self.test.thresholds.items()},
             "gains_db": {str(freq): gain for freq, gain in zip(BANDS, gains)},
             "apo_dirty": self.apo_dirty,
         }
+        if name:
+            state["name"] = name
+        return state
+
+    def apply_state(self, state: dict[str, object], mark_dirty: bool) -> None:
+        gains = state.get("gains_db", {})
+        thresholds = state.get("thresholds_dbfs", {})
+
+        if not isinstance(gains, dict) or not isinstance(thresholds, dict):
+            raise ValueError("Settings file does not contain gains and thresholds.")
+
+        self.loading_state = True
         try:
-            STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            for index, frequency in enumerate(BANDS):
+                self.gain_vars[index].set(float(gains.get(str(frequency), 0.0)))
+            self.test.thresholds = {int(freq): float(level) for freq, level in thresholds.items()}
+        finally:
+            self.loading_state = False
+
+        self.apo_dirty = mark_dirty
+        self.update_threshold_list()
+        self.draw_graph()
+        self.save_state()
+
+    def save_settings_profile(self) -> None:
+        default_name = f"Auto EQ {datetime.now().strftime('%Y-%m-%d %H-%M')}"
+        name = simpledialog.askstring("Save Settings", "Profile name:", initialvalue=default_name, parent=self.root)
+        if not name:
+            return
+
+        safe_name = re.sub(r"[^A-Za-z0-9_. -]+", "_", name).strip(" .")
+        if not safe_name:
+            safe_name = default_name
+
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        path = PROFILE_DIR / f"{safe_name}.json"
+        counter = 2
+        while path.exists():
+            path = PROFILE_DIR / f"{safe_name} {counter}.json"
+            counter += 1
+
+        try:
+            path.write_text(json.dumps(self.current_state(name), indent=2), encoding="utf-8")
         except OSError as exc:
-            self.status.set(f"Could not save configuration: {exc}")
+            messagebox.showerror("Could not save settings", str(exc))
+            return
+
+        self.status.set(f"Saved settings profile: {path.name}")
+
+    def load_settings_profile(self) -> None:
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        filename = filedialog.askopenfilename(
+            title="Load Auto Equalizer settings",
+            initialdir=str(PROFILE_DIR),
+            filetypes=[("Auto Equalizer settings", "*.json"), ("All files", "*.*")],
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                raise ValueError("Settings file is not a JSON object.")
+            self.apply_state(state, mark_dirty=True)
+        except (OSError, ValueError, TypeError) as exc:
+            messagebox.showerror("Could not load settings", str(exc))
+            return
+
+        self.status.set(f"Loaded settings profile: {path.name}. Slider changes update APO live; use Apply To APO if needed.")
 
     def start_test(self) -> None:
         if self.test.running:
