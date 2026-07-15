@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import traceback
+import ctypes
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,8 @@ METER_BLOCK_SIZE = 4096
 METER_MIN_DB = -72.0
 METER_MAX_DB = 0.0
 METER_SMOOTHING = 0.7
+COINIT_MULTITHREADED = 0x0
+RPC_E_CHANGED_MODE = 0x80010106
 
 
 @dataclass
@@ -178,6 +181,20 @@ def audio_to_band_levels_db(audio: np.ndarray, samplerate: int) -> list[float]:
         db = 20.0 * math.log10(max(rms, 1e-8))
         levels.append(round(min(METER_MAX_DB, max(METER_MIN_DB, db)), 1))
     return levels
+
+
+def initialize_com_for_thread() -> bool:
+    result = ctypes.windll.ole32.CoInitializeEx(None, COINIT_MULTITHREADED)
+    if result == 0:
+        return True
+    if result == RPC_E_CHANGED_MODE:
+        return False
+    raise OSError(f"CoInitializeEx failed: 0x{result & 0xFFFFFFFF:08x}")
+
+
+def uninitialize_com_for_thread(initialized: bool) -> None:
+    if initialized:
+        ctypes.windll.ole32.CoUninitialize()
 
 
 def apo_preset_text(gains: list[float], thresholds: dict[int, float]) -> str:
@@ -341,7 +358,9 @@ class AutoEqualizerApp:
         self.meter_thread.start()
 
     def _run_output_meter(self) -> None:
+        com_initialized = False
         try:
+            com_initialized = initialize_com_for_thread()
             speaker = sc.default_speaker()
             microphone = sc.get_microphone(speaker.name, include_loopback=True)
             self.events.put(("meter_status", f"Output meter listening to {speaker.name}."))
@@ -353,6 +372,8 @@ class AutoEqualizerApp:
                     self.events.put(("meter", levels))
         except Exception as exc:
             self.events.put(("meter_error", exc))
+        finally:
+            uninitialize_com_for_thread(com_initialized)
 
     def load_state(self) -> None:
         if not STATE_PATH.exists():
