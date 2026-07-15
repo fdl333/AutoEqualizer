@@ -239,6 +239,7 @@ class AutoEqualizerApp:
         self.gain_vars = [DoubleVar(value=0.0) for _ in BANDS]
         self.loading_state = False
         self.apo_dirty = False
+        self.slider_apply_after_id: str | None = None
         self.meter_levels = [METER_MIN_DB for _ in BANDS]
         self.meter_stop_event = threading.Event()
         self.meter_thread: threading.Thread | None = None
@@ -256,6 +257,11 @@ class AutoEqualizerApp:
     def on_close(self) -> None:
         self.log_runtime("closed by window")
         self.meter_stop_event.set()
+        if self.slider_apply_after_id is not None:
+            try:
+                self.root.after_cancel(self.slider_apply_after_id)
+            except Exception:
+                pass
         self.root.destroy()
 
     def report_callback_exception(self, exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
@@ -477,6 +483,9 @@ class AutoEqualizerApp:
         self.test = HearingTest(running=True)
         self.heard_event.clear()
         self.stop_event.clear()
+        if self.slider_apply_after_id is not None:
+            self.root.after_cancel(self.slider_apply_after_id)
+            self.slider_apply_after_id = None
         self._set_test_buttons(True)
         self.update_threshold_list()
         self.status.set("Test running. Press Space as soon as you can hear each tone.")
@@ -568,7 +577,7 @@ class AutoEqualizerApp:
                 if was_stopped:
                     self.status.set("Test stopped. The curve uses only the thresholds measured so far.")
                 else:
-                    self.status.set("Test complete. Review the curve, then click Apply To APO when ready.")
+                    self.status.set("Test complete. Review the curve, then click Apply To APO when ready. Manual slider moves update live.")
             elif kind == "error":
                 self.test.running = False
                 self._set_test_buttons(False)
@@ -599,7 +608,34 @@ class AutoEqualizerApp:
         if not self.loading_state:
             self.apo_dirty = True
             self.save_state()
-            self.status.set("Curve changed locally. Click Apply To APO when you want to hear it.")
+            self.status.set("Curve changed. Updating APO...")
+            self.schedule_slider_apply()
+
+    def schedule_slider_apply(self) -> None:
+        if self.test.running:
+            return
+
+        if self.slider_apply_after_id is not None:
+            try:
+                self.root.after_cancel(self.slider_apply_after_id)
+            except Exception:
+                pass
+        self.slider_apply_after_id = self.root.after(250, self.apply_slider_change_to_apo)
+
+    def apply_slider_change_to_apo(self) -> None:
+        self.slider_apply_after_id = None
+        if self.test.running:
+            return
+
+        try:
+            self.write_current_curve_to_apo(update_config=True)
+        except OSError as exc:
+            self.status.set(f"Live slider update failed: {exc}")
+            return
+
+        self.apo_dirty = False
+        self.save_state()
+        self.status.set(f"APO updated from slider at {datetime.now().strftime('%H:%M:%S')}.")
 
     def export_preset(self) -> None:
         gains = [round(var.get(), 1) for var in self.gain_vars]
@@ -664,15 +700,7 @@ class AutoEqualizerApp:
         try:
             if config_path.exists():
                 backup_path.write_text(config_path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-            gains = [round(var.get(), 1) for var in self.gain_vars]
-            preset_path = APO_CONFIG_DIR / APO_PRESET_NAME
-            self.atomic_write_text(preset_path, apo_preset_text(gains, self.test.thresholds))
-            config_text = (
-                "# Managed by Auto Equalizer. Previous config was backed up next to this file.\n"
-                f"# Applied: {datetime.now().isoformat(timespec='seconds')}\n"
-                f"Include: {APO_PRESET_NAME}\n"
-            )
-            self.atomic_write_text(config_path, config_text)
+            preset_path = self.write_current_curve_to_apo(update_config=True)
         except OSError as exc:
             messagebox.showerror(
                 "Could not apply to APO",
@@ -689,6 +717,22 @@ class AutoEqualizerApp:
             "Applied to Equalizer APO",
             f"Saved current curve to:\n{preset_path}\n\nActive config:\n{config_path}\n\nBackup created:\n{backup_path}",
         )
+
+    def write_current_curve_to_apo(self, update_config: bool) -> Path:
+        gains = [round(var.get(), 1) for var in self.gain_vars]
+        preset_path = APO_CONFIG_DIR / APO_PRESET_NAME
+        self.atomic_write_text(preset_path, apo_preset_text(gains, self.test.thresholds))
+
+        if update_config:
+            config_path = APO_CONFIG_DIR / "config.txt"
+            config_text = (
+                "# Managed by Auto Equalizer. Previous config was backed up next to this file.\n"
+                f"# Applied: {datetime.now().isoformat(timespec='seconds')}\n"
+                f"Include: {APO_PRESET_NAME}\n"
+            )
+            self.atomic_write_text(config_path, config_text)
+
+        return preset_path
 
     @staticmethod
     def atomic_write_text(path: Path, text: str) -> None:

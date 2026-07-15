@@ -60,7 +60,9 @@ Preamp: -6.0 dB
 GraphicEQ: 40 2.0; 63 1.5; 100 0.0; 160 0.0
 ```
 
-Slider changes and hearing-test results stay local until you click **Apply To APO** again. This keeps the hearing test from changing the APO curve while it is measuring.
+Hearing-test results stay local until you click **Apply To APO**. This keeps the hearing test from changing the APO curve while it is measuring.
+
+Manual slider changes update Equalizer APO automatically after a short debounce, using the same `GraphicEQ` preset file.
 
 If Windows blocks the write, run the app as Administrator or use **Export APO Preset** and import it from Peace.
 
