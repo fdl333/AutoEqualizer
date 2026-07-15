@@ -55,7 +55,13 @@ Click **Apply To APO** when you are happy with the current curve. The app backs 
 
 `C:\Program Files\EqualizerAPO\config\config.txt`
 
-The active `config.txt` becomes the generated Auto Equalizer preset:
+The active `config.txt` includes the generated Auto Equalizer preset:
+
+```text
+Include: auto_hearing_eq.txt
+```
+
+The generated preset contains standard Equalizer APO syntax:
 
 ```text
 Preamp: -6.0 dB
@@ -64,7 +70,7 @@ GraphicEQ: 40 2.0; 63 1.5; 100 0.0; 160 0.0
 
 Hearing-test results stay local until you click **Apply To APO**. This keeps the hearing test from changing the APO curve while it is measuring.
 
-Manual slider changes update Equalizer APO automatically after a short debounce, using the same `GraphicEQ` preset file.
+Manual slider changes update Equalizer APO automatically after a short debounce, using the same included preset file.
 
 If Windows blocks the write, run the app as Administrator or use **Export APO Preset** and import it from Peace.
 
@@ -74,6 +80,10 @@ The packaged `.exe` is built to request Administrator rights at launch, because 
 
 ## Saved Configuration
 
-The app saves the last thresholds and slider curve in `auto_equalizer_state.json` and loads them on startup.
+The app saves the last thresholds and slider curve in:
 
-Use **Save Settings** and **Load Settings** to manage named profiles. Profiles are stored as JSON files in the `profiles` folder beside the app.
+`%LOCALAPPDATA%\Auto Equalizer\auto_equalizer_state.json`
+
+Use **Save Settings** and **Load Settings** to manage named profiles. Profiles are stored as JSON files in:
+
+`%LOCALAPPDATA%\Auto Equalizer\profiles`

@@ -242,6 +242,17 @@ def apo_preset_text(gains: list[float], thresholds: dict[int, float]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def apo_config_text() -> str:
+    lines = [
+        "# Auto Equalizer active config",
+        f"# Updated: {datetime.now().isoformat(timespec='seconds')}",
+        "# Equalizer APO loads the generated curve from this preset file.",
+        f"Include: {APO_PRESET_NAME}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 class AutoEqualizerApp:
     def __init__(self) -> None:
         initialize_user_data()
@@ -793,14 +804,6 @@ class AutoEqualizerApp:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_path = APO_CONFIG_DIR / f"config.before-auto-eq.{timestamp}.txt"
 
-        if not messagebox.askokcancel(
-            "Apply To Equalizer APO",
-            f"This will write the current curve to:\n{config_path}\n\n"
-            f"Your current config.txt will be backed up as:\n{backup_path.name}\n\n"
-            "Manual slider changes also update APO automatically.",
-        ):
-            return
-
         try:
             if config_path.exists():
                 backup_path.write_text(config_path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
@@ -821,8 +824,20 @@ class AutoEqualizerApp:
     def write_current_curve_to_apo(self) -> Path:
         gains = [round(var.get(), 1) for var in self.gain_vars]
         config_path = APO_CONFIG_DIR / "config.txt"
-        config_text = apo_preset_text(gains, self.test.thresholds)
-        config_path.write_text(config_text, encoding="utf-8")
+        preset_path = APO_CONFIG_DIR / APO_PRESET_NAME
+        preset_text = apo_preset_text(gains, self.test.thresholds)
+        config_text = apo_config_text()
+
+        self.atomic_write_text(preset_path, preset_text)
+        self.atomic_write_text(config_path, config_text)
+        os.utime(preset_path, None)
+        os.utime(config_path, None)
+
+        saved_preset = preset_path.read_text(encoding="utf-8", errors="replace")
+        saved_config = config_path.read_text(encoding="utf-8", errors="replace")
+        if saved_preset != preset_text or f"Include: {APO_PRESET_NAME}" not in saved_config:
+            raise OSError("Equalizer APO config verification failed after writing.")
+
         return config_path
 
     @staticmethod
