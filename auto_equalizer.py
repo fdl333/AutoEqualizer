@@ -5,6 +5,7 @@ import math
 import os
 import queue
 import re
+import shutil
 import sys
 import threading
 import time
@@ -51,12 +52,15 @@ DEFAULT_Q = 1.41
 SAMPLE_RATE = 48000
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
+USER_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or Path.home()) / "Auto Equalizer"
 APO_CONFIG_DIR = Path(r"C:\Program Files\EqualizerAPO\config")
 APO_PRESET_NAME = "auto_hearing_eq.txt"
-CRASH_LOG_PATH = APP_DIR / "auto_equalizer_crash.log"
-RUNTIME_LOG_PATH = APP_DIR / "auto_equalizer_runtime.log"
-STATE_PATH = APP_DIR / "auto_equalizer_state.json"
-PROFILE_DIR = APP_DIR / "profiles"
+LEGACY_STATE_PATH = APP_DIR / "auto_equalizer_state.json"
+LEGACY_PROFILE_DIR = APP_DIR / "profiles"
+CRASH_LOG_PATH = USER_DATA_DIR / "auto_equalizer_crash.log"
+RUNTIME_LOG_PATH = USER_DATA_DIR / "auto_equalizer_runtime.log"
+STATE_PATH = USER_DATA_DIR / "auto_equalizer_state.json"
+PROFILE_DIR = USER_DATA_DIR / "profiles"
 ICON_PATH = RESOURCE_DIR / "assets" / "auto_equalizer.ico"
 WINDOW_WIDTH = 700
 WINDOW_HEIGHT = 590
@@ -77,6 +81,20 @@ METER_MAX_DB = 0.0
 METER_SMOOTHING = 0.7
 COINIT_MULTITHREADED = 0x0
 RPC_E_CHANGED_MODE = 0x80010106
+
+
+def initialize_user_data() -> None:
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if LEGACY_STATE_PATH.exists() and not STATE_PATH.exists():
+        shutil.copy2(LEGACY_STATE_PATH, STATE_PATH)
+
+    if LEGACY_PROFILE_DIR.exists():
+        for source in LEGACY_PROFILE_DIR.glob("*.json"):
+            destination = PROFILE_DIR / source.name
+            if not destination.exists():
+                shutil.copy2(source, destination)
 
 
 @dataclass
@@ -226,6 +244,7 @@ def apo_preset_text(gains: list[float], thresholds: dict[int, float]) -> str:
 
 class AutoEqualizerApp:
     def __init__(self) -> None:
+        initialize_user_data()
         self.root = Tk()
         self.root.title("Auto Equalizer")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
