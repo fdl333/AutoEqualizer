@@ -31,7 +31,7 @@ python auto_equalizer.py
 ## Using The Preset In Peace
 
 1. Run the hearing test in the app.
-2. Click **Export APO Preset**.
+2. Use **File > Export APO Preset File**.
 3. Save the preset somewhere convenient, or directly in:
 
    `C:\Program Files\EqualizerAPO\config`
@@ -46,6 +46,8 @@ GraphicEQ: 40 2.0; 63 1.5; 100 0.0; 160 0.0
 ```
 
 Peace manages its own `peace.txt`, so this app exports a separate preset instead of modifying Peace's live file.
+
+Exporting a preset file does not apply it. It only saves a `.txt` file you can import manually in Peace or Equalizer APO.
 
 ## Applying To Equalizer APO
 

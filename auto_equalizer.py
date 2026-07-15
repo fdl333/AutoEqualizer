@@ -19,6 +19,7 @@ from tkinter import (
     DISABLED,
     END,
     LEFT,
+    Menu,
     NORMAL,
     RIGHT,
     TOP,
@@ -59,8 +60,8 @@ RUNTIME_LOG_PATH = APP_DIR / "auto_equalizer_runtime.log"
 STATE_PATH = APP_DIR / "auto_equalizer_state.json"
 PROFILE_DIR = APP_DIR / "profiles"
 ICON_PATH = RESOURCE_DIR / "assets" / "auto_equalizer.ico"
-WINDOW_WIDTH = 1080
-WINDOW_HEIGHT = 720
+WINDOW_WIDTH = 900
+WINDOW_HEIGHT = 650
 GRAPH_WIDTH = 610
 GRAPH_HEIGHT = 270
 GRAPH_PAD_LEFT = 54
@@ -70,6 +71,8 @@ GRAPH_PAD_BOTTOM = 38
 APO_WRITE_RETRIES = 5
 APO_WRITE_RETRY_DELAY_SECONDS = 0.05
 SLIDER_COLUMN_WIDTH = 36
+SLIDER_AREA_HEIGHT = 220
+SLIDER_LENGTH = 185
 METER_BLOCK_SIZE = 4096
 METER_MIN_DB = -72.0
 METER_MAX_DB = 0.0
@@ -233,6 +236,7 @@ class AutoEqualizerApp:
             self.root.iconbitmap(str(ICON_PATH))
         self.root.report_callback_exception = self.report_callback_exception
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.build_menu()
         self.log_runtime("started")
 
         self.test = HearingTest()
@@ -280,6 +284,18 @@ class AutoEqualizerApp:
             f"Something went wrong.\n\nDetails were saved to:\n{CRASH_LOG_PATH}",
         )
 
+    def build_menu(self) -> None:
+        menu_bar = Menu(self.root)
+        file_menu = Menu(menu_bar, tearoff=False)
+        file_menu.add_command(label="Load Settings...", command=self.load_settings_profile)
+        file_menu.add_command(label="Save Settings...", command=self.save_settings_profile)
+        file_menu.add_separator()
+        file_menu.add_command(label="Export APO Preset File...", command=self.export_preset)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.on_close)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+        self.root.config(menu=menu_bar)
+
     def _build_ui(self) -> None:
         top = Frame(self.root, padx=14, pady=12)
         top.pack(side=TOP, fill=BOTH, expand=False)
@@ -289,7 +305,7 @@ class AutoEqualizerApp:
             top,
             textvariable=self.status,
             font=("Segoe UI", 10),
-            wraplength=1040,
+            wraplength=860,
             justify=LEFT,
         ).pack(anchor="w", pady=(6, 0))
         Label(top, textvariable=self.current, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 0))
@@ -305,10 +321,7 @@ class AutoEqualizerApp:
         self.stop_button.pack(side=LEFT, padx=(0, 8))
         Button(buttons, text="Recalculate EQ", command=self.apply_test_gains, width=14).pack(side=LEFT, padx=(0, 8))
         self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=14)
-        self.apply_button.pack(side=LEFT, padx=(0, 8))
-        Button(buttons, text="Save Settings", command=self.save_settings_profile, width=14).pack(side=LEFT, padx=(0, 8))
-        Button(buttons, text="Load Settings", command=self.load_settings_profile, width=14).pack(side=LEFT, padx=(0, 8))
-        Button(buttons, text="Export APO Preset", command=self.export_preset, width=18).pack(side=LEFT)
+        self.apply_button.pack(side=LEFT)
 
         main = Frame(self.root, padx=14, pady=8)
         main.pack(side=TOP, fill=BOTH, expand=True)
@@ -321,14 +334,14 @@ class AutoEqualizerApp:
         self.graph.bind("<Configure>", lambda _event: self.draw_graph())
 
         sliders = Frame(left)
-        sliders.configure(width=GRAPH_WIDTH, height=266)
+        sliders.configure(width=GRAPH_WIDTH, height=SLIDER_AREA_HEIGHT)
         sliders.pack(side=TOP, fill=BOTH, expand=False, pady=(14, 0))
         sliders.pack_propagate(False)
 
         for index, frequency in enumerate(BANDS):
             column = Frame(sliders)
             x = self._graph_x(index, GRAPH_WIDTH)
-            column.place(x=round(x - (SLIDER_COLUMN_WIDTH / 2)), y=0, width=SLIDER_COLUMN_WIDTH, height=266)
+            column.place(x=round(x - (SLIDER_COLUMN_WIDTH / 2)), y=0, width=SLIDER_COLUMN_WIDTH, height=SLIDER_AREA_HEIGHT)
             scale = Scale(
                 column,
                 from_=MAX_BOOST_DB,
@@ -336,7 +349,7 @@ class AutoEqualizerApp:
                 resolution=0.5,
                 orient="vertical",
                 variable=self.gain_vars[index],
-                length=230,
+                length=SLIDER_LENGTH,
                 width=10,
                 sliderlength=14,
                 showvalue=False,
