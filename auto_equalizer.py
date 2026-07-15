@@ -21,14 +21,12 @@ from tkinter import (
     LEFT,
     Menu,
     NORMAL,
-    RIGHT,
     TOP,
     Button,
     Canvas,
     DoubleVar,
     Frame,
     Label,
-    Listbox,
     Scale,
     StringVar,
     Tk,
@@ -60,8 +58,8 @@ RUNTIME_LOG_PATH = APP_DIR / "auto_equalizer_runtime.log"
 STATE_PATH = APP_DIR / "auto_equalizer_state.json"
 PROFILE_DIR = APP_DIR / "profiles"
 ICON_PATH = RESOURCE_DIR / "assets" / "auto_equalizer.ico"
-WINDOW_WIDTH = 900
-WINDOW_HEIGHT = 650
+WINDOW_WIDTH = 700
+WINDOW_HEIGHT = 590
 GRAPH_WIDTH = 610
 GRAPH_HEIGHT = 270
 GRAPH_PAD_LEFT = 54
@@ -244,7 +242,7 @@ class AutoEqualizerApp:
         self.heard_event = threading.Event()
         self.stop_event = threading.Event()
         self.worker: threading.Thread | None = None
-        self.status = StringVar(value="Ready. Set your Windows volume to a comfortable normal listening level.")
+        self.status = StringVar(value="Ready. Set Windows volume to a comfortable normal listening level.")
         self.current = StringVar(value="No test running")
         self.gain_vars = [DoubleVar(value=0.0) for _ in BANDS]
         self.loading_state = False
@@ -297,33 +295,23 @@ class AutoEqualizerApp:
         self.root.config(menu=menu_bar)
 
     def _build_ui(self) -> None:
-        top = Frame(self.root, padx=14, pady=12)
+        top = Frame(self.root, padx=10, pady=8)
         top.pack(side=TOP, fill=BOTH, expand=False)
 
-        Label(top, text="Auto Equalizer", font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        Label(
-            top,
-            textvariable=self.status,
-            font=("Segoe UI", 10),
-            wraplength=860,
-            justify=LEFT,
-        ).pack(anchor="w", pady=(6, 0))
-        Label(top, textvariable=self.current, font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 0))
-
         buttons = Frame(top)
-        buttons.pack(anchor="w", pady=(12, 0))
+        buttons.pack(anchor="w")
 
-        self.start_button = Button(buttons, text="Start Hearing Test", command=self.start_test, width=18)
+        self.start_button = Button(buttons, text="Start Test", command=self.start_test, width=13)
         self.start_button.pack(side=LEFT, padx=(0, 8))
-        self.heard_button = Button(buttons, text="I can hear it (Space)", command=self.mark_heard, width=20, state=DISABLED)
+        self.heard_button = Button(buttons, text="I hear it (Space)", command=self.mark_heard, width=17, state=DISABLED)
         self.heard_button.pack(side=LEFT, padx=(0, 8))
-        self.stop_button = Button(buttons, text="Stop", command=self.stop_test, width=10, state=DISABLED)
+        self.stop_button = Button(buttons, text="Stop", command=self.stop_test, width=8, state=DISABLED)
         self.stop_button.pack(side=LEFT, padx=(0, 8))
-        Button(buttons, text="Recalculate EQ", command=self.apply_test_gains, width=14).pack(side=LEFT, padx=(0, 8))
-        self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=14)
+        Button(buttons, text="Recalculate", command=self.apply_test_gains, width=12).pack(side=LEFT, padx=(0, 8))
+        self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=12)
         self.apply_button.pack(side=LEFT)
 
-        main = Frame(self.root, padx=14, pady=8)
+        main = Frame(self.root, padx=10, pady=8)
         main.pack(side=TOP, fill=BOTH, expand=True)
 
         left = Frame(main)
@@ -358,17 +346,17 @@ class AutoEqualizerApp:
             scale.pack()
             Label(column, text=self._freq_label(frequency), font=("Segoe UI", 8)).pack()
 
-        right = Frame(main, padx=12)
-        right.pack(side=RIGHT, fill=BOTH, expand=False)
-        Label(right, text="Thresholds", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        self.threshold_list = Listbox(right, height=18, width=28)
-        self.threshold_list.pack(side=TOP, fill=BOTH, expand=True, pady=(8, 0))
-
-        note = (
-            "Space records the current tone as heard. If you never hear a tone before the cap, "
-            "the app records the cap and moves on."
+        self.status_bar = Label(
+            self.root,
+            textvariable=self.status,
+            anchor="w",
+            relief="sunken",
+            bd=1,
+            padx=8,
+            pady=3,
+            font=("Segoe UI", 9),
         )
-        Label(right, text=note, wraplength=240, justify=LEFT).pack(side=BOTTOM, anchor="w", pady=(12, 0))
+        self.status_bar.pack(side=BOTTOM, fill=BOTH)
 
     def _bind_keys(self) -> None:
         self.root.bind("<space>", lambda _event: self.mark_heard())
@@ -645,6 +633,7 @@ class AutoEqualizerApp:
             if kind == "current":
                 frequency, level = payload
                 self.current.set(f"Testing {self._freq_label(frequency)} at {level:.0f} dBFS")
+                self.status.set(f"Testing {self._freq_label(frequency)} at {level:.0f} dBFS. Press Space when you hear it.")
             elif kind == "threshold":
                 self.update_threshold_list()
             elif kind == "meter":
@@ -789,7 +778,7 @@ class AutoEqualizerApp:
             "Apply To Equalizer APO",
             f"This will write the current curve to:\n{config_path}\n\n"
             f"Your current config.txt will be backed up as:\n{backup_path.name}\n\n"
-            "Slider changes after this will stay local until you click Apply To APO again.",
+            "Manual slider changes also update APO automatically.",
         ):
             return
 
@@ -834,12 +823,7 @@ class AutoEqualizerApp:
             raise last_error
 
     def update_threshold_list(self) -> None:
-        self.threshold_list.delete(0, END)
-        for frequency in BANDS:
-            if frequency in self.test.thresholds:
-                self.threshold_list.insert(END, f"{self._freq_label(frequency):>7}: {self.test.thresholds[frequency]:5.1f} dBFS")
-            else:
-                self.threshold_list.insert(END, f"{self._freq_label(frequency):>7}: not tested")
+        return
 
     def draw_graph(self) -> None:
         canvas = self.graph
