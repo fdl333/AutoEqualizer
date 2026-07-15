@@ -42,7 +42,7 @@ The exported file is standard Equalizer APO syntax:
 
 ```text
 Preamp: -6.0 dB
-Filter 1: ON PK Fc 31 Hz Gain 2.0 dB Q 1.41
+GraphicEQ: 40 2.0; 63 1.5; 100 0.0; 160 0.0
 ```
 
 Peace manages its own `peace.txt`, so this app exports a separate preset instead of modifying Peace's live file.
@@ -57,7 +57,7 @@ The active `config.txt` becomes the generated Auto Equalizer preset:
 
 ```text
 Preamp: -6.0 dB
-Filter 1: ON PK Fc 31 Hz Gain 2.0 dB Q 1.41
+GraphicEQ: 40 2.0; 63 1.5; 100 0.0; 160 0.0
 ```
 
 Slider changes and hearing-test results stay local until you click **Apply To APO** again. This keeps the hearing test from changing the APO curve while it is measuring.

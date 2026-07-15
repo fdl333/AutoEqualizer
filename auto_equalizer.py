@@ -199,16 +199,15 @@ def uninitialize_com_for_thread(initialized: bool) -> None:
 
 def apo_preset_text(gains: list[float], thresholds: dict[int, float]) -> str:
     preamp = -round(max(gains), 1) if gains else 0.0
+    graph_points = "; ".join(f"{frequency} {gain:.1f}" for frequency, gain in zip(BANDS, gains))
     lines = [
         "# Auto Equalizer hearing-compensation preset",
         f"# Created: {datetime.now().isoformat(timespec='seconds')}",
         "# Import this file in Peace, or include it from Equalizer APO config.txt.",
         "# This is not a medical audiogram.",
         f"Preamp: {preamp:.1f} dB",
+        f"GraphicEQ: {graph_points}",
     ]
-
-    for index, (frequency, gain) in enumerate(zip(BANDS, gains), start=1):
-        lines.append(f"Filter {index}: ON PK Fc {frequency} Hz Gain {gain:.1f} dB Q {DEFAULT_Q:.2f}")
 
     if thresholds:
         lines.append("")
@@ -414,12 +413,26 @@ class AutoEqualizerApp:
 
         try:
             config_text = config_path.read_text(encoding="utf-8", errors="replace")
+            for include_match in re.finditer(r"^\s*Include:\s*(.+?)\s*$", config_text, flags=re.MULTILINE):
+                include_path = Path(include_match.group(1).strip().strip('"'))
+                if not include_path.is_absolute():
+                    include_path = APO_CONFIG_DIR / include_path
+                if include_path.exists():
+                    config_text += "\n" + include_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return
 
         gains_by_freq: dict[int, float] = {}
         for match in re.finditer(r"Fc\s+(\d+)\s+Hz\s+Gain\s+(-?\d+(?:\.\d+)?)\s+dB", config_text):
             gains_by_freq[int(match.group(1))] = float(match.group(2))
+        for graphic_match in re.finditer(r"GraphicEQ:\s*(.+)", config_text):
+            for point in graphic_match.group(1).split(";"):
+                parts = point.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        gains_by_freq[int(float(parts[0]))] = float(parts[1])
+                    except ValueError:
+                        continue
 
         if not gains_by_freq:
             return
@@ -652,7 +665,14 @@ class AutoEqualizerApp:
             if config_path.exists():
                 backup_path.write_text(config_path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
             gains = [round(var.get(), 1) for var in self.gain_vars]
-            self.atomic_write_text(config_path, apo_preset_text(gains, self.test.thresholds))
+            preset_path = APO_CONFIG_DIR / APO_PRESET_NAME
+            self.atomic_write_text(preset_path, apo_preset_text(gains, self.test.thresholds))
+            config_text = (
+                "# Managed by Auto Equalizer. Previous config was backed up next to this file.\n"
+                f"# Applied: {datetime.now().isoformat(timespec='seconds')}\n"
+                f"Include: {APO_PRESET_NAME}\n"
+            )
+            self.atomic_write_text(config_path, config_text)
         except OSError as exc:
             messagebox.showerror(
                 "Could not apply to APO",
@@ -667,7 +687,7 @@ class AutoEqualizerApp:
         self.status.set(f"Applied to APO at {datetime.now().strftime('%H:%M:%S')}.")
         messagebox.showinfo(
             "Applied to Equalizer APO",
-            f"Saved current curve to:\n{config_path}\n\nBackup created:\n{backup_path}",
+            f"Saved current curve to:\n{preset_path}\n\nActive config:\n{config_path}\n\nBackup created:\n{backup_path}",
         )
 
     @staticmethod
