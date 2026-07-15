@@ -628,11 +628,13 @@ class AutoEqualizerApp:
             return
 
         try:
-            self.write_current_curve_to_apo(update_config=True)
+            self.write_current_curve_to_apo()
         except OSError as exc:
+            self.log_runtime(f"live slider update failed: {exc}")
             self.status.set(f"Live slider update failed: {exc}")
             return
 
+        self.log_runtime("live slider update wrote config.txt")
         self.apo_dirty = False
         self.save_state()
         self.status.set(f"APO updated from slider at {datetime.now().strftime('%H:%M:%S')}.")
@@ -700,7 +702,7 @@ class AutoEqualizerApp:
         try:
             if config_path.exists():
                 backup_path.write_text(config_path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-            preset_path = self.write_current_curve_to_apo(update_config=True)
+            config_path = self.write_current_curve_to_apo()
         except OSError as exc:
             messagebox.showerror(
                 "Could not apply to APO",
@@ -715,24 +717,15 @@ class AutoEqualizerApp:
         self.status.set(f"Applied to APO at {datetime.now().strftime('%H:%M:%S')}.")
         messagebox.showinfo(
             "Applied to Equalizer APO",
-            f"Saved current curve to:\n{preset_path}\n\nActive config:\n{config_path}\n\nBackup created:\n{backup_path}",
+            f"Saved current curve to:\n{config_path}\n\nBackup created:\n{backup_path}",
         )
 
-    def write_current_curve_to_apo(self, update_config: bool) -> Path:
+    def write_current_curve_to_apo(self) -> Path:
         gains = [round(var.get(), 1) for var in self.gain_vars]
-        preset_path = APO_CONFIG_DIR / APO_PRESET_NAME
-        self.atomic_write_text(preset_path, apo_preset_text(gains, self.test.thresholds))
-
-        if update_config:
-            config_path = APO_CONFIG_DIR / "config.txt"
-            config_text = (
-                "# Managed by Auto Equalizer. Previous config was backed up next to this file.\n"
-                f"# Applied: {datetime.now().isoformat(timespec='seconds')}\n"
-                f"Include: {APO_PRESET_NAME}\n"
-            )
-            self.atomic_write_text(config_path, config_text)
-
-        return preset_path
+        config_path = APO_CONFIG_DIR / "config.txt"
+        config_text = apo_preset_text(gains, self.test.thresholds)
+        config_path.write_text(config_text, encoding="utf-8")
+        return config_path
 
     @staticmethod
     def atomic_write_text(path: Path, text: str) -> None:
