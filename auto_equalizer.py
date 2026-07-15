@@ -69,8 +69,8 @@ GRAPH_PAD_BOTTOM = 38
 APO_WRITE_RETRIES = 5
 APO_WRITE_RETRY_DELAY_SECONDS = 0.05
 SLIDER_COLUMN_WIDTH = 36
-SLIDER_AREA_HEIGHT = 220
-SLIDER_LENGTH = 185
+SLIDER_AREA_HEIGHT = 200
+SLIDER_LENGTH = 166
 METER_BLOCK_SIZE = 4096
 METER_MIN_DB = -72.0
 METER_MAX_DB = 0.0
@@ -353,7 +353,7 @@ class AutoEqualizerApp:
             relief="sunken",
             bd=1,
             padx=8,
-            pady=3,
+            pady=7,
             font=("Segoe UI", 9),
         )
         self.status_bar.pack(side=BOTTOM, fill=BOTH)
