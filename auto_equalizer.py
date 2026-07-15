@@ -37,6 +37,11 @@ from tkinter import (
 import numpy as np
 import sounddevice as sd
 
+try:
+    import soundcard as sc
+except ImportError:
+    sc = None
+
 
 BANDS = [40, 63, 100, 160, 250, 400, 630, 1000, 1600, 2500, 4000, 6300, 10000, 16000]
 TEST_LEVELS_DBFS = list(range(-60, -9, 3))
@@ -60,6 +65,10 @@ GRAPH_PAD_BOTTOM = 38
 APO_WRITE_RETRIES = 5
 APO_WRITE_RETRY_DELAY_SECONDS = 0.05
 SLIDER_COLUMN_WIDTH = 36
+METER_BLOCK_SIZE = 4096
+METER_MIN_DB = -72.0
+METER_MAX_DB = 0.0
+METER_SMOOTHING = 0.7
 
 
 @dataclass
@@ -123,6 +132,54 @@ def thresholds_to_gains(thresholds: dict[int, float]) -> list[float]:
     return smooth_gains(raw_gains)
 
 
+def band_edges(frequencies: list[int]) -> list[tuple[float, float]]:
+    edges: list[tuple[float, float]] = []
+    for index, frequency in enumerate(frequencies):
+        if index == 0:
+            low = frequency / math.sqrt(frequencies[index + 1] / frequency)
+        else:
+            low = math.sqrt(frequencies[index - 1] * frequency)
+
+        if index == len(frequencies) - 1:
+            high = frequency * math.sqrt(frequency / frequencies[index - 1])
+        else:
+            high = math.sqrt(frequency * frequencies[index + 1])
+        edges.append((low, high))
+    return edges
+
+
+BAND_EDGES = band_edges(BANDS)
+
+
+def audio_to_band_levels_db(audio: np.ndarray, samplerate: int) -> list[float]:
+    if audio.size == 0:
+        return [METER_MIN_DB for _ in BANDS]
+
+    mono = np.asarray(audio, dtype=np.float32)
+    if mono.ndim == 2:
+        mono = mono.mean(axis=1)
+
+    if mono.size < 16:
+        return [METER_MIN_DB for _ in BANDS]
+
+    mono = mono - float(np.mean(mono))
+    window = np.hanning(mono.size).astype(np.float32)
+    spectrum = np.fft.rfft(mono * window)
+    magnitudes = np.abs(spectrum) / max(float(np.sum(window)) / 2.0, 1.0)
+    freqs = np.fft.rfftfreq(mono.size, d=1.0 / samplerate)
+
+    levels: list[float] = []
+    for low, high in BAND_EDGES:
+        mask = (freqs >= low) & (freqs < high)
+        if not np.any(mask):
+            levels.append(METER_MIN_DB)
+            continue
+        rms = float(np.sqrt(np.mean(np.square(magnitudes[mask]))))
+        db = 20.0 * math.log10(max(rms, 1e-8))
+        levels.append(round(min(METER_MAX_DB, max(METER_MIN_DB, db)), 1))
+    return levels
+
+
 def apo_preset_text(gains: list[float], thresholds: dict[int, float]) -> str:
     preamp = -round(max(gains), 1) if gains else 0.0
     lines = [
@@ -166,10 +223,14 @@ class AutoEqualizerApp:
         self.gain_vars = [DoubleVar(value=0.0) for _ in BANDS]
         self.loading_state = False
         self.apo_dirty = False
+        self.meter_levels = [METER_MIN_DB for _ in BANDS]
+        self.meter_stop_event = threading.Event()
+        self.meter_thread: threading.Thread | None = None
 
         self._build_ui()
         self._bind_keys()
         self.load_state()
+        self.start_output_meter()
         self._poll_events()
 
     def log_runtime(self, message: str) -> None:
@@ -178,6 +239,7 @@ class AutoEqualizerApp:
 
     def on_close(self) -> None:
         self.log_runtime("closed by window")
+        self.meter_stop_event.set()
         self.root.destroy()
 
     def report_callback_exception(self, exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
@@ -268,6 +330,29 @@ class AutoEqualizerApp:
     def _bind_keys(self) -> None:
         self.root.bind("<space>", lambda _event: self.mark_heard())
         self.root.bind("<Escape>", lambda _event: self.stop_test())
+
+    def start_output_meter(self) -> None:
+        if sc is None:
+            self.status.set("Output meter unavailable: install the soundcard package to enable loopback capture.")
+            return
+
+        self.meter_stop_event.clear()
+        self.meter_thread = threading.Thread(target=self._run_output_meter, daemon=True)
+        self.meter_thread.start()
+
+    def _run_output_meter(self) -> None:
+        try:
+            speaker = sc.default_speaker()
+            microphone = sc.get_microphone(speaker.name, include_loopback=True)
+            self.events.put(("meter_status", f"Output meter listening to {speaker.name}."))
+
+            with microphone.recorder(samplerate=SAMPLE_RATE, channels=2) as recorder:
+                while not self.meter_stop_event.is_set():
+                    audio = recorder.record(numframes=METER_BLOCK_SIZE)
+                    levels = audio_to_band_levels_db(audio, SAMPLE_RATE)
+                    self.events.put(("meter", levels))
+        except Exception as exc:
+            self.events.put(("meter_error", exc))
 
     def load_state(self) -> None:
         if not STATE_PATH.exists():
@@ -425,6 +510,19 @@ class AutoEqualizerApp:
                 self.current.set(f"Testing {self._freq_label(frequency)} at {level:.0f} dBFS")
             elif kind == "threshold":
                 self.update_threshold_list()
+            elif kind == "meter":
+                incoming = payload
+                self.meter_levels = [
+                    round((previous * METER_SMOOTHING) + (current * (1.0 - METER_SMOOTHING)), 1)
+                    for previous, current in zip(self.meter_levels, incoming)
+                ]
+                self.draw_graph()
+            elif kind == "meter_status":
+                if not self.test.running:
+                    self.status.set(str(payload))
+            elif kind == "meter_error":
+                if not self.test.running:
+                    self.status.set(f"Output meter unavailable: {payload}")
             elif kind == "done":
                 was_stopped = self.stop_event.is_set()
                 self.test.running = False
@@ -581,6 +679,7 @@ class AutoEqualizerApp:
         width = GRAPH_WIDTH
         height = GRAPH_HEIGHT
         plot_h = height - GRAPH_PAD_TOP - GRAPH_PAD_BOTTOM
+        plot_bottom = height - GRAPH_PAD_BOTTOM
 
         for db in range(-12, 13, 6):
             y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - db) / (MAX_BOOST_DB + 12)) * plot_h
@@ -597,6 +696,8 @@ class AutoEqualizerApp:
             canvas.create_line(x, GRAPH_PAD_TOP, x, height - GRAPH_PAD_BOTTOM, fill="#1f2937")
             canvas.create_text(x, height - 18, fill="#cbd5e1", text=self._freq_label(frequency), font=("Segoe UI", 8))
 
+        self.draw_meter_bars(canvas, points, plot_bottom)
+
         zero_y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - 0) / (MAX_BOOST_DB + 12)) * plot_h
         canvas.create_line(GRAPH_PAD_LEFT, zero_y, width - GRAPH_PAD_RIGHT, zero_y, fill="#94a3b8", width=2)
 
@@ -607,6 +708,26 @@ class AutoEqualizerApp:
         for x, y, gain, _frequency in points:
             canvas.create_oval(x - 5, y - 5, x + 5, y + 5, fill="#f8fafc", outline="#38bdf8", width=2)
             canvas.create_text(x, y - 16, fill="#e0f2fe", text=f"{gain:+.1f}", font=("Segoe UI", 8, "bold"))
+
+    def draw_meter_bars(self, canvas: Canvas, points: list[tuple[float, float, float, int]], plot_bottom: int) -> None:
+        if not points:
+            return
+
+        bar_width = max(10, int((GRAPH_WIDTH - GRAPH_PAD_LEFT - GRAPH_PAD_RIGHT) / (len(BANDS) * 2.4)))
+        for (x, _y, _gain, _frequency), level_db in zip(points, self.meter_levels):
+            normalized = (level_db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB)
+            normalized = min(1.0, max(0.0, normalized))
+            bar_top = plot_bottom - (normalized * (plot_bottom - GRAPH_PAD_TOP))
+            color = "#22c55e" if level_db < -12 else "#f59e0b"
+            canvas.create_rectangle(
+                x - (bar_width / 2),
+                bar_top,
+                x + (bar_width / 2),
+                plot_bottom,
+                fill=color,
+                outline="",
+                stipple="gray50",
+            )
 
     @staticmethod
     def _graph_x(index: int, width: int) -> float:

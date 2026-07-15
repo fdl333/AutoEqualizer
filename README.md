@@ -6,6 +6,8 @@ It plays one frequency at a time, gradually increasing level until you press Spa
 
 The 14 bands are: `40`, `63`, `100`, `160`, `250`, `400`, `630`, `1k`, `1.6k`, `2.5k`, `4k`, `6.3k`, `10k`, and `16k`.
 
+The graph also shows a realtime 14-band output meter using Windows WASAPI loopback capture. If Equalizer APO is active on the playback device, this meter reflects the equalized audio being sent to that output.
+
 ## Important safety note
 
 This is not a medical hearing test and it does not diagnose hearing loss. Keep your Windows volume comfortable before starting, use headphones/speakers you normally use, and stop immediately if a tone feels loud, painful, or irritating. The app caps generated boosts by default, but you are still in charge of listening level.
