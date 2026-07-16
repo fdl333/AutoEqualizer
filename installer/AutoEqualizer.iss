@@ -1,5 +1,5 @@
 #define MyAppName "Auto Equalizer"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "fdl333"
 #define MyAppExeName "Auto Equalizer.exe"
 

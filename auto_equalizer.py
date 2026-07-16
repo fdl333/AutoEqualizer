@@ -263,7 +263,7 @@ class AutoEqualizerApp:
         if ICON_PATH.exists():
             self.root.iconbitmap(str(ICON_PATH))
         self.root.report_callback_exception = self.report_callback_exception
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
         self.build_menu()
         self.log_runtime("started")
 
@@ -292,8 +292,17 @@ class AutoEqualizerApp:
         with RUNTIME_LOG_PATH.open("a", encoding="utf-8") as log:
             log.write(f"[{datetime.now().isoformat(timespec='seconds')}] {message}\n")
 
-    def on_close(self) -> None:
-        self.log_runtime("closed by window")
+    def on_window_close(self) -> None:
+        if self.root.state() == "iconic":
+            self.exit_app("closed from taskbar")
+            return
+
+        self.log_runtime("minimized by window close")
+        self.status.set("Minimized. Use File > Exit to close the app.")
+        self.root.iconify()
+
+    def exit_app(self, reason: str = "closed") -> None:
+        self.log_runtime(reason)
         self.meter_stop_event.set()
         if self.slider_apply_after_id is not None:
             try:
@@ -320,7 +329,7 @@ class AutoEqualizerApp:
         file_menu.add_separator()
         file_menu.add_command(label="Export APO Preset File...", command=self.export_preset)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_close)
+        file_menu.add_command(label="Exit", command=lambda: self.exit_app("closed from File > Exit"))
         menu_bar.add_cascade(label="File", menu=file_menu)
         self.root.config(menu=menu_bar)
 
