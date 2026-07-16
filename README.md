@@ -8,6 +8,8 @@ The 14 bands are: `40`, `63`, `100`, `160`, `250`, `400`, `630`, `1k`, `1.6k`, `
 
 The graph also shows a realtime 14-band output meter using Windows WASAPI loopback capture. If Equalizer APO is active on the playback device, this meter reflects the equalized audio being sent to that output.
 
+The manual EQ sliders cover -18 dB to +18 dB. Presets include a matching negative preamp when boosts are used, which helps avoid clipping.
+
 ## Important safety note
 
 This is not a medical hearing test and it does not diagnose hearing loss. Keep your Windows volume comfortable before starting, use headphones/speakers you normally use, and stop immediately if a tone feels loud, painful, or irritating. The app caps generated boosts by default, but you are still in charge of listening level.

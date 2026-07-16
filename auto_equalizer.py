@@ -53,7 +53,8 @@ except ImportError:
 
 BANDS = [40, 63, 100, 160, 250, 400, 630, 1000, 1600, 2500, 4000, 6300, 10000, 16000]
 TEST_LEVELS_DBFS = list(range(-60, -9, 3))
-MAX_BOOST_DB = 12.0
+MAX_BOOST_DB = 18.0
+MIN_GAIN_DB = -18.0
 DEFAULT_Q = 1.41
 SAMPLE_RATE = 48000
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -68,9 +69,9 @@ RUNTIME_LOG_PATH = USER_DATA_DIR / "auto_equalizer_runtime.log"
 STATE_PATH = USER_DATA_DIR / "auto_equalizer_state.json"
 PROFILE_DIR = USER_DATA_DIR / "profiles"
 ICON_PATH = RESOURCE_DIR / "assets" / "auto_equalizer.ico"
-WINDOW_WIDTH = 700
+WINDOW_WIDTH = 640
 WINDOW_HEIGHT = 590
-GRAPH_WIDTH = 610
+GRAPH_WIDTH = 600
 GRAPH_HEIGHT = 270
 GRAPH_PAD_LEFT = 54
 GRAPH_PAD_RIGHT = 24
@@ -427,14 +428,14 @@ class AutoEqualizerApp:
         buttons = Frame(top)
         buttons.pack(anchor="w")
 
-        self.start_button = Button(buttons, text="Start Test", command=self.start_test, width=13)
+        self.start_button = Button(buttons, text="Start Test", command=self.start_test, width=11)
         self.start_button.pack(side=LEFT, padx=(0, 8))
-        self.heard_button = Button(buttons, text="I hear it (Space)", command=self.mark_heard, width=17, state=DISABLED)
+        self.heard_button = Button(buttons, text="I hear it (Space)", command=self.mark_heard, width=15, state=DISABLED)
         self.heard_button.pack(side=LEFT, padx=(0, 8))
         self.stop_button = Button(buttons, text="Stop", command=self.stop_test, width=8, state=DISABLED)
         self.stop_button.pack(side=LEFT, padx=(0, 8))
-        Button(buttons, text="Recalculate", command=self.apply_test_gains, width=12).pack(side=LEFT, padx=(0, 8))
-        self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=12)
+        Button(buttons, text="Recalculate", command=self.apply_test_gains, width=11).pack(side=LEFT, padx=(0, 8))
+        self.apply_button = Button(buttons, text="Apply To APO", command=self.apply_to_apo, width=11)
         self.apply_button.pack(side=LEFT)
 
         main = Frame(self.root, padx=10, pady=8)
@@ -459,7 +460,7 @@ class AutoEqualizerApp:
             scale = Scale(
                 column,
                 from_=MAX_BOOST_DB,
-                to=-12,
+                to=MIN_GAIN_DB,
                 resolution=0.5,
                 orient="vertical",
                 variable=self.gain_vars[index],
@@ -963,8 +964,10 @@ class AutoEqualizerApp:
         plot_h = height - GRAPH_PAD_TOP - GRAPH_PAD_BOTTOM
         plot_bottom = height - GRAPH_PAD_BOTTOM
 
-        for db in range(-12, 13, 6):
-            y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - db) / (MAX_BOOST_DB + 12)) * plot_h
+        gain_range = MAX_BOOST_DB - MIN_GAIN_DB
+
+        for db in range(int(MIN_GAIN_DB), int(MAX_BOOST_DB) + 1, 6):
+            y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - db) / gain_range) * plot_h
             canvas.create_line(GRAPH_PAD_LEFT, y, width - GRAPH_PAD_RIGHT, y, fill="#263244")
             canvas.create_text(10, y, anchor="w", fill="#cbd5e1", text=f"{db:+d} dB", font=("Segoe UI", 8))
 
@@ -972,7 +975,7 @@ class AutoEqualizerApp:
         for index, frequency in enumerate(BANDS):
             x = self._graph_x(index, width)
             gain = self.gain_vars[index].get()
-            y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - gain) / (MAX_BOOST_DB + 12)) * plot_h
+            y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - gain) / gain_range) * plot_h
             points.append((x, y, gain, frequency))
 
             canvas.create_line(x, GRAPH_PAD_TOP, x, height - GRAPH_PAD_BOTTOM, fill="#1f2937")
@@ -980,7 +983,7 @@ class AutoEqualizerApp:
 
         self.draw_meter_bars(canvas, points, plot_bottom)
 
-        zero_y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - 0) / (MAX_BOOST_DB + 12)) * plot_h
+        zero_y = GRAPH_PAD_TOP + ((MAX_BOOST_DB - 0) / gain_range) * plot_h
         canvas.create_line(GRAPH_PAD_LEFT, zero_y, width - GRAPH_PAD_RIGHT, zero_y, fill="#94a3b8", width=2)
 
         if len(points) > 1:
