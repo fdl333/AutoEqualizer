@@ -38,6 +38,12 @@ from tkinter import (
 
 import numpy as np
 import sounddevice as sd
+from PIL import Image, ImageDraw
+
+try:
+    import pystray
+except ImportError:
+    pystray = None
 
 try:
     import soundcard as sc
@@ -81,6 +87,9 @@ METER_MAX_DB = 0.0
 METER_SMOOTHING = 0.7
 COINIT_MULTITHREADED = 0x0
 RPC_E_CHANGED_MODE = 0x80010106
+ERROR_ALREADY_EXISTS = 183
+SINGLE_INSTANCE_MUTEX_NAME = "Local\\fdl333.AutoEqualizer"
+SINGLE_INSTANCE_MUTEX_HANDLE: int | None = None
 
 
 def initialize_user_data() -> None:
@@ -95,6 +104,38 @@ def initialize_user_data() -> None:
             destination = PROFILE_DIR / source.name
             if not destination.exists():
                 shutil.copy2(source, destination)
+
+
+def is_already_running() -> bool:
+    global SINGLE_INSTANCE_MUTEX_HANDLE
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, True, SINGLE_INSTANCE_MUTEX_NAME)
+    SINGLE_INSTANCE_MUTEX_HANDLE = mutex
+    return bool(mutex) and ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS
+
+
+def show_already_running_message() -> None:
+    ctypes.windll.user32.MessageBoxW(
+        None,
+        "Auto Equalizer is already running.\n\nCheck the system tray near the clock.",
+        "Auto Equalizer",
+        0x00000040,
+    )
+
+
+def tray_image() -> Image.Image:
+    if ICON_PATH.exists():
+        try:
+            return Image.open(ICON_PATH).convert("RGBA")
+        except OSError:
+            pass
+
+    image = Image.new("RGBA", (64, 64), "#0f172a")
+    draw = ImageDraw.Draw(image)
+    colors = ["#38bdf8", "#22c55e", "#f59e0b", "#e0f2fe"]
+    bars = [(10, 38), (24, 22), (38, 46), (52, 14)]
+    for index, (x, top) in enumerate(bars):
+        draw.rounded_rectangle((x - 4, top, x + 4, 54), radius=3, fill=colors[index])
+    return image
 
 
 @dataclass
@@ -281,9 +322,12 @@ class AutoEqualizerApp:
         self.meter_levels = [METER_MIN_DB for _ in BANDS]
         self.meter_stop_event = threading.Event()
         self.meter_thread: threading.Thread | None = None
+        self.tray_icon: pystray.Icon | None = None
+        self.tray_notice_shown = False
 
         self._build_ui()
         self._bind_keys()
+        self.start_tray_icon()
         self.load_state()
         self.start_output_meter()
         self._poll_events()
@@ -293,17 +337,60 @@ class AutoEqualizerApp:
             log.write(f"[{datetime.now().isoformat(timespec='seconds')}] {message}\n")
 
     def on_window_close(self) -> None:
-        if self.root.state() == "iconic":
-            self.exit_app("closed from taskbar")
+        if self.tray_icon is None:
+            self.log_runtime("minimized by window close")
+            self.status.set("Minimized. Use File > Exit to close the app.")
+            self.root.iconify()
             return
 
-        self.log_runtime("minimized by window close")
-        self.status.set("Minimized. Use File > Exit to close the app.")
-        self.root.iconify()
+        self.log_runtime("hidden to system tray")
+        self.root.withdraw()
+        if not self.tray_notice_shown:
+            self.tray_notice_shown = True
+            try:
+                self.tray_icon.notify("Auto Equalizer is still running.", "Auto Equalizer")
+            except Exception:
+                pass
+
+    def start_tray_icon(self) -> None:
+        if pystray is None:
+            self.status.set("System tray unavailable: pystray is not installed.")
+            return
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Open", self.open_from_tray, default=True),
+            pystray.MenuItem("Exit", self.exit_from_tray),
+        )
+        self.tray_icon = pystray.Icon("Auto Equalizer", tray_image(), "Auto Equalizer", menu)
+        try:
+            self.tray_icon.run_detached()
+        except Exception as exc:
+            self.tray_icon = None
+            self.log_runtime(f"tray icon failed: {exc}")
+            self.status.set(f"System tray unavailable: {exc}")
+
+    def open_from_tray(self, _icon: object = None, _item: object = None) -> None:
+        self.root.after(0, self.show_window)
+
+    def exit_from_tray(self, _icon: object = None, _item: object = None) -> None:
+        self.root.after(0, lambda: self.exit_app("closed from system tray"))
+
+    def show_window(self) -> None:
+        self.root.deiconify()
+        self.root.state("normal")
+        self.root.lift()
+        self.root.focus_force()
+        self.status.set("Ready.")
 
     def exit_app(self, reason: str = "closed") -> None:
         self.log_runtime(reason)
         self.meter_stop_event.set()
+        if self.tray_icon is not None:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
         if self.slider_apply_after_id is not None:
             try:
                 self.root.after_cancel(self.slider_apply_after_id)
@@ -943,5 +1030,12 @@ class AutoEqualizerApp:
         self.root.mainloop()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    if is_already_running():
+        show_already_running_message()
+        return
     AutoEqualizerApp().run()
+
+
+if __name__ == "__main__":
+    main()
